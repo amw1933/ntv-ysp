@@ -1,0 +1,16 @@
+{
+  "name": "ntv-ysp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Clean-room YSP live and catch-up gateway with a browser player",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "check": "node --check src/server.js && node --check src/jce.js && node --check src/playlist.js"
+  },
+  "license": "MIT"
+}

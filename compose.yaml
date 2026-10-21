@@ -1,0 +1,10 @@
+services:
+  ntv-ysp:
+    build: .
+    container_name: ntv-ysp
+    restart: unless-stopped
+    ports:
+      - "8768:8768"
+    environment:
+      PORT: "8768"
+      HOST: "0.0.0.0"

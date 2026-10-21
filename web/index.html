@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nTv YSP</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="side">
+      <div id="brand">
+        <div>
+          <b>nTv YSP</b>
+          <small>直播与七天回看</small>
+        </div>
+        <button id="menuButton" type="button" title="频道列表">☰</button>
+      </div>
+      <label id="searchWrap">
+        <span>搜索</span>
+        <input id="search" type="search" autocomplete="off" placeholder="频道名称">
+      </label>
+      <div id="list" role="listbox" aria-label="频道"></div>
+      <div id="meta">正在读取频道...</div>
+    </aside>
+
+    <main id="main">
+      <section id="stage" aria-label="播放器">
+        <video id="video" controls autoplay playsinline></video>
+        <div id="status">正在载入</div>
+        <div id="controls">
+          <button id="liveButton" class="primary" type="button">直播</button>
+          <input id="seekTime" type="datetime-local" step="60" aria-label="回看时间">
+          <input id="seekLength" type="number" min="1" max="240" value="30" aria-label="回看分钟数">
+          <span>分钟</span>
+          <button id="replayButton" type="button">回看</button>
+          <button id="epgButton" type="button">节目单</button>
+          <button id="soundButton" type="button">声音</button>
+        </div>
+      </section>
+      <footer id="footer">
+        <span id="nowPlaying">请选择频道</span>
+        <span id="clock"></span>
+      </footer>
+    </main>
+  </div>
+  <div id="epgBackdrop" hidden></div>
+  <section id="epgPanel" aria-label="电视节目单" hidden>
+    <header>
+      <div>
+        <h2 id="epgTitle">节目单</h2>
+        <p id="epgSubtitle">正在读取</p>
+      </div>
+      <button id="epgClose" type="button" aria-label="关闭节目单">关闭</button>
+    </header>
+    <div id="epgToolbar">
+      <label for="epgDate">日期</label>
+      <select id="epgDate"></select>
+      <button id="epgRefresh" type="button">刷新</button>
+    </div>
+    <div id="epgList" role="list"></div>
+  </section>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
