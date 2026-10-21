@@ -94,6 +94,47 @@
       color: var(--muted); font-size: 12px; background: #0d141e;
     }
     #nowPlaying { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #guideBackdrop {
+      position: fixed; inset: 0; z-index: 20; background: rgba(1,5,10,.58);
+    }
+    #guidePanel {
+      position: fixed; right: 0; bottom: 0; left: 280px; z-index: 21;
+      display: flex; max-height: min(64vh, 720px); flex-direction: column;
+      border-top: 1px solid #3b4c63; background: #0e1621;
+      box-shadow: 0 -20px 60px rgba(0,0,0,.45);
+    }
+    #guidePanel header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 18px; padding: 15px 18px 12px; border-bottom: 1px solid var(--line);
+    }
+    #guideTitle { margin: 0; font-size: 20px; letter-spacing: 0; }
+    #guideSubtitle { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    #guideClose, #guideRefresh, #guideDate {
+      min-height: 34px; padding: 5px 11px; border: 1px solid #3a4657;
+      border-radius: 6px; background: #151f2d; color: var(--text);
+    }
+    #guideToolbar {
+      display: flex; align-items: center; gap: 9px; padding: 10px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    #guideToolbar label { color: var(--muted); font-size: 12px; }
+    #guideList { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 8px 12px 14px; }
+    .program {
+      display: grid; width: 100%; grid-template-columns: 116px minmax(0,1fr) auto;
+      align-items: center; gap: 14px; padding: 10px;
+      border: 0; border-bottom: 1px solid #1c2838; border-radius: 5px;
+      background: transparent; color: var(--text); text-align: left;
+    }
+    .program:hover:not(:disabled), .program:focus-visible:not(:disabled) {
+      outline: none; background: #182538;
+    }
+    .program:disabled { cursor: default; color: #6f7f94; }
+    .program.live { background: rgba(26,92,168,.24); }
+    .program .time { color: #bdc9d8; font-variant-numeric: tabular-nums; }
+    .program .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .program .state { color: var(--muted); font-size: 12px; }
+    .program.live .state { color: var(--accent); }
+    #guideEmpty { padding: 28px 18px; color: var(--muted); text-align: center; }
     @media (max-width: 760px) {
       #app { grid-template-columns: 180px minmax(0, 1fr); }
       #brand { padding: 12px; }
@@ -102,6 +143,9 @@
       #controls { gap: 6px; padding: 22px 9px 9px; }
       #controls button { padding: 5px 9px; }
       #seekTime { width: 100%; }
+      #guidePanel { left: 0; }
+      .program { grid-template-columns: 88px minmax(0,1fr); }
+      .program .state { display: none; }
     }
   </style>
 </head>
@@ -126,6 +170,7 @@
           <input id="seekLength" type="number" min="1" max="240" value="30" aria-label="回看分钟数">
           <span>分钟</span>
           <button id="replayButton" type="button">回看</button>
+          <button id="guideButton" type="button">节目单</button>
           <button id="soundButton" type="button">声音</button>
         </div>
       </section>
@@ -135,6 +180,22 @@
       </footer>
     </main>
   </div>
+  <div id="guideBackdrop" hidden></div>
+  <section id="guidePanel" aria-label="电视节目单" hidden>
+    <header>
+      <div>
+        <h2 id="guideTitle">节目单</h2>
+        <p id="guideSubtitle">正在读取</p>
+      </div>
+      <button id="guideClose" type="button" aria-label="关闭节目单">关闭</button>
+    </header>
+    <div id="guideToolbar">
+      <label for="guideDate">日期</label>
+      <select id="guideDate"></select>
+      <button id="guideRefresh" type="button">刷新</button>
+    </div>
+    <div id="guideList" role="list"></div>
+  </section>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
   <script>
     (function () {
@@ -151,6 +212,14 @@
       var liveBtn = $("liveButton"), replayBtn = $("replayButton");
       var seekTime = $("seekTime"), seekLength = $("seekLength");
       var soundBtn = $("soundButton"), clockEl = $("clock");
+      var guideButton = $("guideButton"), guideBackdrop = $("guideBackdrop");
+      var guidePanel = $("guidePanel"), guideTitle = $("guideTitle");
+      var guideSubtitle = $("guideSubtitle"), guideDate = $("guideDate");
+      var guideRefresh = $("guideRefresh"), guideClose = $("guideClose");
+      var guideList = $("guideList");
+      var guideCache = null;
+      var guideLoading = null;
+      var guideRequestId = 0;
 
       function pad(n) { return (n < 10 ? "0" : "") + n; }
       function localTime(d) {
@@ -181,6 +250,7 @@
           var display = comma >= 0 ? line.slice(comma + 1).trim() : attr(line, "tvg-name");
           out.push({
             name: attr(line, "tvg-name") || display,
+            tvgId: attr(line, "tvg-id"),
             display: display || attr(line, "tvg-name") || "未命名频道",
             group: attr(line, "group-title") || "其他",
             logo: attr(line, "tvg-logo"),
@@ -248,6 +318,7 @@
             .replace("${(e)yyyyMMddHHmmss}", parts[1]);
         }
         render(searchEl.value);
+        if (!guidePanel.hidden) loadGuide(ch);
         nowEl.textContent = ch.display + " · " + (live ? "直播" : "回看");
         liveBtn.classList.toggle("primary", live);
         setStatus("正在连接 " + ch.display);
@@ -297,6 +368,229 @@
         var minutes = Math.max(1, Math.min(240, Number(seekLength.value) || 30));
         var start = new Date(end.getTime() - minutes * 60000);
         play(current, false, compact(start) + "-" + compact(end));
+      }
+      function normalizeName(value) {
+        return String(value || "").toLowerCase()
+          .replace(/\s+/g, "")
+          .replace(/[._·\-()（）]/g, "")
+          .replace(/高清|超高清/g, "");
+      }
+      function xmlTime(value) {
+        var match = String(value || "").match(
+          /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\s*([+-])(\d{2})(\d{2}))?/
+        );
+        if (!match) return 0;
+        var offset = match[7]
+          ? (Number(match[8]) * 60 + Number(match[9])) * 60
+          : 0;
+        if (match[7] === "-") offset = -offset;
+        return Math.floor((Date.UTC(
+          Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+          Number(match[4]), Number(match[5]), Number(match[6])
+        ) - offset * 1000) / 1000);
+      }
+      function shanghaiDateKey(seconds) {
+        var d = new Date((seconds + 8 * 3600) * 1000);
+        return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate());
+      }
+      async function fetchGuideText() {
+        var response = await fetch("https://epg.zsdc.eu.org/t.xml.gz", { cache: "no-store" });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        var buffer = new Uint8Array(await response.arrayBuffer());
+        if (buffer[0] !== 0x1f || buffer[1] !== 0x8b) {
+          return new TextDecoder().decode(buffer);
+        }
+        if (typeof DecompressionStream === "undefined") {
+          throw new Error("当前浏览器不支持解压节目单");
+        }
+        var stream = new Blob([buffer]).stream()
+          .pipeThrough(new DecompressionStream("gzip"));
+        return await new Response(stream).text();
+      }
+      function parseGuide(xml) {
+        var doc = new DOMParser().parseFromString(xml, "application/xml");
+        if (doc.getElementsByTagName("parsererror").length) {
+          throw new Error("节目单 XML 解析失败");
+        }
+        var ids = {};
+        var aliases = {};
+        var channelNodes = doc.getElementsByTagName("channel");
+        for (var i = 0; i < channelNodes.length; i++) {
+          var node = channelNodes[i];
+          var id = node.getAttribute("id");
+          if (!id) continue;
+          ids[id.toLowerCase()] = id;
+          aliases[normalizeName(id)] = id;
+          var names = node.getElementsByTagName("display-name");
+          for (var n = 0; n < names.length; n++) {
+            aliases[normalizeName(names[n].textContent)] = id;
+          }
+        }
+        var programmes = {};
+        var programmeNodes = doc.getElementsByTagName("programme");
+        for (var p = 0; p < programmeNodes.length; p++) {
+          var programme = programmeNodes[p];
+          var channel = programme.getAttribute("channel");
+          var start = xmlTime(programme.getAttribute("start"));
+          var stop = xmlTime(programme.getAttribute("stop"));
+          if (!channel || !start || !stop || stop <= start) continue;
+          var titleNodes = programme.getElementsByTagName("title");
+          var descNodes = programme.getElementsByTagName("desc");
+          var item = {
+            start: start,
+            stop: stop,
+            title: titleNodes.length ? titleNodes[0].textContent.trim() : "未命名节目",
+            description: descNodes.length ? descNodes[0].textContent.trim() : ""
+          };
+          (programmes[channel] = programmes[channel] || []).push(item);
+        }
+        Object.keys(programmes).forEach(function (id) {
+          programmes[id].sort(function (a, b) { return a.start - b.start; });
+        });
+        return { ids: ids, aliases: aliases, programmes: programmes };
+      }
+      async function ensureGuide(force) {
+        if (guideCache && !force) return guideCache;
+        if (guideLoading && !force) return guideLoading;
+        guideLoading = fetchGuideText()
+          .then(parseGuide)
+          .then(function (guide) {
+            guideCache = guide;
+            return guide;
+          })
+          .finally(function () { guideLoading = null; });
+        return guideLoading;
+      }
+      function populateGuideDates() {
+        var selected = guideDate.value;
+        var now = new Date();
+        var options = [];
+        for (var offset = 0; offset > -7; offset -= 1) {
+          var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, 12);
+          var key = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+          var label = offset === 0 ? "今天" : offset === -1 ? "昨天" :
+            new Intl.DateTimeFormat("zh-CN", {
+              month: "2-digit", day: "2-digit", weekday: "short"
+            }).format(d);
+          options.push({ key: key, label: label });
+        }
+        guideDate.textContent = "";
+        options.forEach(function (option) {
+          var el = document.createElement("option");
+          el.value = option.key;
+          el.textContent = option.label;
+          guideDate.appendChild(el);
+        });
+        if (options.some(function (option) { return option.key === selected; })) {
+          guideDate.value = selected;
+        }
+      }
+      function guideChannelId(ch, guide) {
+        var id = ch.tvgId && guide.ids[ch.tvgId.toLowerCase()];
+        if (id) return id;
+        return guide.aliases[normalizeName(ch.name)]
+          || guide.aliases[normalizeName(ch.display)] || "";
+      }
+      function timeOfDay(seconds) {
+        return new Intl.DateTimeFormat("zh-CN", {
+          hour: "2-digit", minute: "2-digit", hour12: false
+        }).format(new Date(seconds * 1000));
+      }
+      async function loadGuide(ch, force) {
+        ch = ch || current;
+        if (!ch) return;
+        var requestId = ++guideRequestId;
+        guideTitle.textContent = ch.display + " 节目单";
+        guideSubtitle.textContent = "正在读取节目单";
+        guideList.textContent = "";
+        var loading = document.createElement("div");
+        loading.id = "guideEmpty";
+        loading.textContent = "正在加载，首次可能需要几秒...";
+        guideList.appendChild(loading);
+        try {
+          var guide = await ensureGuide(force);
+          if (requestId !== guideRequestId || current !== ch) return;
+          var channelId = guideChannelId(ch, guide);
+          var date = guideDate.value;
+          var programmes = channelId ? (guide.programmes[channelId] || []) : [];
+          programmes = programmes.filter(function (item) {
+            return shanghaiDateKey(item.start) === date;
+          });
+          guideSubtitle.textContent = channelId
+            ? programmes.length + " 个节目 · " + date
+            : "没有找到该频道的节目数据";
+          guideList.textContent = "";
+          if (!programmes.length) {
+            var empty = document.createElement("div");
+            empty.id = "guideEmpty";
+            empty.textContent = "当前日期没有节目数据";
+            guideList.appendChild(empty);
+            return;
+          }
+          var now = Math.floor(Date.now() / 1000);
+          programmes.forEach(function (programme) {
+            var isLive = now >= programme.start && now < programme.stop;
+            var future = programme.start > now;
+            var replayable = ch.catchup && programme.stop <= now;
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "program" + (isLive ? " live" : "");
+            button.setAttribute("role", "listitem");
+            button.disabled = future || (!isLive && !replayable);
+            var time = document.createElement("span");
+            time.className = "time";
+            time.textContent = timeOfDay(programme.start) + " - " + timeOfDay(programme.stop);
+            var title = document.createElement("span");
+            title.className = "title";
+            title.textContent = programme.title;
+            title.title = programme.description || programme.title;
+            var state = document.createElement("span");
+            state.className = "state";
+            state.textContent = isLive ? "直播中" : future ? "未开始" :
+              replayable ? "可回看" : "不可回看";
+            button.appendChild(time);
+            button.appendChild(title);
+            button.appendChild(state);
+            if (isLive) {
+              button.addEventListener("click", function () {
+                play(ch, true);
+                closeGuide();
+              });
+            } else if (replayable) {
+              button.addEventListener("click", function () {
+                seekTime.value = localTime(new Date(programme.stop * 1000));
+                seekLength.value = Math.max(1,
+                  Math.min(240, Math.round((programme.stop - programme.start) / 60)));
+                play(ch, false, compact(new Date(programme.start * 1000))
+                  + "-" + compact(new Date(programme.stop * 1000)));
+                closeGuide();
+              });
+            }
+            guideList.appendChild(button);
+          });
+        } catch (error) {
+          if (requestId !== guideRequestId) return;
+          guideSubtitle.textContent = "节目单读取失败";
+          guideList.textContent = "";
+          var failed = document.createElement("div");
+          failed.id = "guideEmpty";
+          failed.textContent = error.message;
+          guideList.appendChild(failed);
+        }
+      }
+      function openGuide() {
+        if (!current) return;
+        populateGuideDates();
+        guideBackdrop.hidden = false;
+        guidePanel.hidden = false;
+        loadGuide(current);
+        guideClose.focus();
+      }
+      function closeGuide() {
+        guideRequestId++;
+        guideBackdrop.hidden = true;
+        guidePanel.hidden = true;
+        guideButton.focus();
       }
       function applySound() {
         video.muted = !soundOn;
@@ -352,6 +646,11 @@
       searchEl.addEventListener("input", function () { render(searchEl.value); });
       liveBtn.addEventListener("click", function () { if (current) play(current, true); });
       replayBtn.addEventListener("click", playCatchup);
+      guideButton.addEventListener("click", openGuide);
+      guideClose.addEventListener("click", closeGuide);
+      guideBackdrop.addEventListener("click", closeGuide);
+      guideDate.addEventListener("change", function () { loadGuide(current); });
+      guideRefresh.addEventListener("click", function () { loadGuide(current, true); });
       soundBtn.addEventListener("click", function () { setSound(); });
       video.addEventListener("click", function () {
         if (video.muted) setSound(true);
@@ -364,6 +663,9 @@
         if (current) {
           setStatus(current.display + " · " + (state.live ? "直播" : "回看"));
         }
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && !guidePanel.hidden) closeGuide();
       });
       applySound();
       seekTime.value = localTime(new Date(Date.now() - 30 * 60000));
