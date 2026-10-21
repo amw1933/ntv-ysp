@@ -32,6 +32,12 @@ http://localhost:8768
 http://你的局域网IP:8768/all.m3u
 ```
 
+例如当前这台电脑是：
+
+```text
+http://10.10.10.108:8768/all.m3u
+```
+
 健康检查：
 
 ```text
@@ -53,6 +59,56 @@ docker compose up -d --build
 - 也可以选择时间点和分钟数后点“回看”。
 - 浏览器自动播放策略可能先静音，点一下画面或“开声音”即可。
 
+## Android TV 播放器
+
+推荐让电视播放器直接读取网关，不依赖手机投屏。网关需要运行在电视可以访问的电脑或 NAS 上。
+
+已验证：
+
+- Televizo：支持 M3U、节目单、直播和存档/回看页签。
+- TiviMate：支持 M3U 和 catch-up，但官方渠道是 Google Play/Amazon，项目不提供第三方镜像 APK。
+
+Televizo 添加方式：
+
+1. 选择“创建播放列表”。
+2. 选择“新的 M3U 播放列表”。
+3. 名称填写 `nTv YSP`。
+4. 链接填写 `http://你的局域网IP:8768/all.m3u`。
+5. 保存后等待频道和节目单载入。
+
+## 开源 TVBox
+
+可在 TVBox 里同时加载“自建 1080P”和“原版 v9.5”两条源做 A/B 对比：
+
+```text
+http://你的局域网IP:8768/tvbox.json
+```
+
+该配置会生成：
+
+- `nTv 自建 1080P`：`http://你的局域网IP:8768/all.m3u`
+- `原版 v9.5`：`http://你的局域网IP:8767/all.m3u`
+
+如果原版 v9.5 不在同一台机器的 `8767` 端口，可以设置：
+
+```powershell
+$env:V95_M3U_URL = 'http://其他地址:8767/all.m3u'
+npm start
+```
+
+已验证可用的 GitHub 开源 TVBox：
+
+- [takagen99/Box](https://github.com/takagen99/Box)：AGPL-3.0，GitHub Release 提供 APK，当前安装包为 `v1.0.0-alpha`。
+- [FongMi/TV](https://github.com/FongMi/TV)：GPL-3.0，维护更活跃，但仓库没有直接附 APK，需要自行构建。
+
+单个频道也可以直接播放，例如：
+
+```text
+http://你的局域网IP:8768/cctv5.m3u8
+```
+
+只允许在局域网使用。当前网关没有公网鉴权，不要直接暴露到互联网。
+
 ## 当前范围
 
 第一版专注视频链路：
@@ -65,8 +121,8 @@ docker compose up -d --build
 
 暂未包含：
 
-- 4K 专用伴生引擎
-- Android APK
+- 真正 4K 专用伴生引擎，当前直连备用线路最高为 1080p
+- 部分频道暂不提供回看
 - HarmonyOS HAP
 
 APK 和 HAP 会在后续接入同一套协议接口，不再依赖本机 Python 或 Docker。

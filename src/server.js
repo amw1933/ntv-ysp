@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { fetchBkPlaylist, getBkPlayUrls } from "./bk.js";
+import { fetchDirectPlaylist } from "./cdn.js";
 import { CHANNELS, buildM3u, findChannel } from "./channels.js";
 import {
   epgCacheState,
@@ -68,10 +70,12 @@ function sendJson(response, status, value) {
 }
 
 function addMediaToken(url, headers) {
+  const expiresAt =
+    (Math.floor(Date.now() / MEDIA_TTL_MS) + 1) * MEDIA_TTL_MS;
   const payload = Buffer.from(JSON.stringify({
     url,
     headers,
-    expiresAt: Date.now() + MEDIA_TTL_MS
+    expiresAt
   })).toString("base64url");
   const signature = crypto
     .createHmac("sha256", TOKEN_SECRET)
@@ -142,36 +146,80 @@ async function fetchPlaylist(url, headers) {
   };
 }
 
-async function resolvePlaylist(channel, range) {
+async function resolvePlaylist(channel, range, quality = "1080") {
   const catchup = Boolean(range);
   const now = Math.floor(Date.now() / 1000);
   const start = range ? range.start : now - 100;
   const end = range ? range.end : now - 15;
   const cacheBucket = Math.floor(Date.now() / PLAYLIST_CACHE_MS);
   const cacheKey = catchup
-    ? `${channel.slug}:catchup:${start}:${end}`
-    : `${channel.slug}:live:${cacheBucket}`;
+    ? `${channel.slug}:catchup:${start}:${end}:${quality}`
+    : `${channel.slug}:live:${quality}:${cacheBucket}`;
   const cached = playlistCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;
   }
 
-  const upstreamUrl = await getTimeshiftUrl({
-    pid: channel.pid,
-    sid: channel.sid,
-    start,
-    end,
-    stream: channel.stream || "fhd"
-  });
-  const headers = mediaHeaders();
-  const playlist = await fetchPlaylist(upstreamUrl, headers);
+  let headers;
+  let playlist;
+  let source;
+  let actualQuality =
+    quality === "4k" ? "2160p" : quality === "auto" ? "auto" : `${quality}p`;
+  if (catchup || channel.catchup) {
+    try {
+      const stream =
+        quality === "4k" ? "uhd" : quality === "720" ? "shd" : channel.stream || "fhd";
+      const upstreamUrl = await getTimeshiftUrl({
+        pid: channel.pid,
+        sid: channel.sid,
+        start,
+        end,
+        stream
+      });
+      headers = mediaHeaders();
+      playlist = await fetchPlaylist(upstreamUrl, headers);
+      source = "timeshift";
+    } catch (error) {
+      if (catchup) {
+        throw error;
+      }
+      playlist = null;
+      headers = null;
+    }
+  }
+  if (!playlist) {
+    try {
+      playlist = await fetchDirectPlaylist(channel, quality);
+      headers = playlist.headers;
+      source = "direct";
+      actualQuality = playlist.quality?.actual || actualQuality;
+    } catch (directError) {
+      const urls = await getBkPlayUrls(channel.sid, channel.pid, channel.stream || "fhd");
+      let lastError = null;
+      for (const url of urls) {
+        try {
+          playlist = await fetchBkPlaylist(url);
+          headers = playlist.headers;
+          source = "bklive";
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!playlist) {
+        throw lastError || directError;
+      }
+    }
+  }
   let value;
   if (catchup) {
     value = {
       kind: "catchup",
       playlist: playlist.text,
       baseUrl: playlist.finalUrl,
-      headers
+      headers,
+      source,
+      quality: { requested: quality, actual: actualQuality }
     };
   } else {
     const live = buildLivePlaylist(playlist.text, playlist.finalUrl, 9);
@@ -182,7 +230,9 @@ async function resolvePlaylist(channel, range) {
       kind: "live",
       playlist: live.text,
       baseUrl: playlist.finalUrl,
-      headers
+      headers,
+      source,
+      quality: { requested: quality, actual: actualQuality }
     };
   }
   playlistCache.set(cacheKey, {
@@ -203,7 +253,8 @@ async function serveChannel(request, response, channel, searchParams) {
   }
   try {
     const range = parseCatchupQuery(searchParams.toString());
-    const resolved = await resolvePlaylist(channel, range);
+    const quality = String(searchParams.get("quality") || "1080").toLowerCase();
+    const resolved = await resolvePlaylist(channel, range, quality);
     const origin = requestOrigin(request);
     const rewritten = rewritePlaylist(
       resolved.playlist,
@@ -215,7 +266,10 @@ async function serveChannel(request, response, channel, searchParams) {
     );
     send(response, 200, rewritten, {
       "Content-Type": "application/vnd.apple.mpegurl",
-      "Cache-Control": resolved.kind === "live" ? "no-store" : "private, max-age=15"
+      "Cache-Control": resolved.kind === "live" ? "no-store" : "private, max-age=15",
+      "X-Playlist-Source": resolved.source,
+      "X-Quality-Requested": resolved.quality.requested,
+      "X-Quality-Actual": resolved.quality.actual
     });
   } catch (error) {
     console.error(`[${channel.slug}] ${error.message}`);
@@ -343,6 +397,32 @@ const server = http.createServer(async (request, response) => {
         ...channel,
         url: `/${channel.slug}.m3u8`
       }))
+    });
+    return;
+  }
+  if (pathname === "/tvbox.json") {
+    const origin = requestOrigin(request);
+    const own = new URL(origin);
+    const upstream = new URL(origin);
+    own.pathname = "/all.m3u";
+    upstream.port = "8767";
+    upstream.pathname = "/all.m3u";
+    sendJson(response, 200, {
+      sites: [],
+      lives: [
+        {
+          name: "nTv 自建 1080P",
+          url: own.toString(),
+          epg: "https://github.com/TvWasm/autoEPG/releases/latest/download/epg.xml",
+          timeZone: "Asia/Shanghai"
+        },
+        {
+          name: "原版 v9.5",
+          url: process.env.V95_M3U_URL || upstream.toString(),
+          epg: "https://github.com/TvWasm/autoEPG/releases/latest/download/epg.xml",
+          timeZone: "Asia/Shanghai"
+        }
+      ]
     });
     return;
   }

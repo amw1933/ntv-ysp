@@ -71,27 +71,55 @@ export function parseTime(value) {
   return null;
 }
 
-export function splitPlaylist(text) {
+export function parsePlaylist(text) {
   const entries = [];
   let duration = 6;
   let programDate = "";
+  let discontinuity = false;
+  let mediaSequence = 0;
+  let discontinuitySequence = 0;
+  let targetDuration = 0;
   for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
     const line = rawLine.trimEnd();
     if (line.startsWith("#EXTINF:")) {
       duration = Number(line.slice(8).split(",", 1)[0]) || 6;
+    } else if (line.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
+      mediaSequence = Number(line.slice(22)) || 0;
+    } else if (line.startsWith("#EXT-X-DISCONTINUITY-SEQUENCE:")) {
+      discontinuitySequence = Number(line.slice(30)) || 0;
+    } else if (line.startsWith("#EXT-X-DISCONTINUITY")) {
+      discontinuity = true;
+    } else if (line.startsWith("#EXT-X-TARGETDURATION:")) {
+      targetDuration = Number(line.slice(22)) || 0;
     } else if (line.startsWith("#EXT-X-PROGRAM-DATE-TIME:")) {
       programDate = line.slice(25).trim();
     } else if (line && !line.startsWith("#") && MEDIA_LINE.test(line)) {
-      entries.push({ duration, programDate, uri: line.trim() });
+      entries.push({
+        duration,
+        programDate,
+        uri: line.trim(),
+        discontinuity
+      });
       programDate = "";
+      discontinuity = false;
       duration = 6;
     }
   }
-  return entries;
+  return {
+    entries,
+    mediaSequence,
+    discontinuitySequence,
+    targetDuration
+  };
+}
+
+export function splitPlaylist(text) {
+  return parsePlaylist(text).entries;
 }
 
 export function buildLivePlaylist(playlist, baseUrl, limit = 9) {
-  const entries = splitPlaylist(playlist);
+  const parsed = parsePlaylist(playlist);
+  const entries = parsed.entries;
   if (!entries.length) {
     return null;
   }
@@ -100,21 +128,23 @@ export function buildLivePlaylist(playlist, baseUrl, limit = 9) {
     1,
     ...selected.map((entry) => Math.ceil(entry.duration))
   );
-  const firstTime = selected[0].programDate
-    ? Date.parse(selected[0].programDate)
-    : Date.now();
-  const mediaSequence = Math.max(
-    0,
-    Math.floor((Number.isFinite(firstTime) ? firstTime : Date.now()) / 1000 / targetDuration)
-  );
+  const mediaSequence =
+    parsed.mediaSequence + Math.max(0, entries.length - selected.length);
   const lines = [
     "#EXTM3U",
     "#EXT-X-VERSION:3",
-    `#EXT-X-TARGETDURATION:${targetDuration}`,
-    `#EXT-X-MEDIA-SEQUENCE:${mediaSequence}`
+    `#EXT-X-TARGETDURATION:${Math.max(
+      targetDuration,
+      ...selected.map((entry) => Math.ceil(entry.duration))
+    )}`,
+    `#EXT-X-MEDIA-SEQUENCE:${mediaSequence}`,
+    `#EXT-X-DISCONTINUITY-SEQUENCE:${parsed.discontinuitySequence}`
   ];
   for (const entry of selected) {
     const absoluteUrl = new URL(entry.uri, baseUrl).toString();
+    if (entry.discontinuity) {
+      lines.push("#EXT-X-DISCONTINUITY");
+    }
     if (entry.programDate) {
       lines.push(`#EXT-X-PROGRAM-DATE-TIME:${entry.programDate}`);
     }

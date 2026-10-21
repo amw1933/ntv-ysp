@@ -3,6 +3,8 @@ const state = {
   current: null,
   hls: null,
   live: true,
+  lastRange: "",
+  quality: localStorage.getItem("ntv-ysp.quality") || "1080",
   lastChannelKey: "ntv-ysp.last-channel"
 };
 
@@ -15,6 +17,7 @@ const elements = {
   liveButton: document.querySelector("#liveButton"),
   seekTime: document.querySelector("#seekTime"),
   seekLength: document.querySelector("#seekLength"),
+  quality: document.querySelector("#quality"),
   replayButton: document.querySelector("#replayButton"),
   epgButton: document.querySelector("#epgButton"),
   soundButton: document.querySelector("#soundButton"),
@@ -138,7 +141,15 @@ function attachPlayer(url, channel, live) {
   state.current = channel;
   state.current.url = url;
   localStorage.setItem(state.lastChannelKey, channel.slug);
-  elements.nowPlaying.textContent = `${channel.name} · ${live ? "直播" : "回看"}`;
+  const qualityLabel =
+    state.quality === "4k"
+      ? "4K优先"
+      : state.quality === "auto"
+        ? "自动码率"
+        : `${state.quality}P`;
+  elements.nowPlaying.textContent = `${channel.name} · ${
+    live ? "直播" : "回看"
+  } · ${qualityLabel}`;
   elements.liveButton.classList.toggle("primary", live);
   renderChannels(elements.search.value);
   if (!elements.epgPanel.hidden) {
@@ -146,7 +157,9 @@ function attachPlayer(url, channel, live) {
   }
 
   const onReady = () => {
-    setStatus(`${channel.name} · ${live ? "直播" : "回看"} · 已载入`);
+    setStatus(
+      `${channel.name} · ${live ? "直播" : "回看"} · ${qualityLabel} · 已载入`
+    );
   };
   const onError = (message) => {
     setStatus(`${channel.name} · ${message}`, true);
@@ -155,8 +168,12 @@ function attachPlayer(url, channel, live) {
   if (window.Hls && window.Hls.isSupported()) {
     const hls = new window.Hls({
       enableWorker: true,
-      lowLatencyMode: true,
-      backBufferLength: 60,
+      lowLatencyMode: false,
+      backBufferLength: 30,
+      maxBufferLength: 40,
+      liveSyncDurationCount: 3,
+      liveMaxLatencyDurationCount: 10,
+      maxLiveSyncPlaybackRate: 1.5,
       manifestLoadingTimeOut: 20000,
       levelLoadingTimeOut: 20000,
       fragLoadingTimeOut: 30000
@@ -209,7 +226,14 @@ function playChannel(channel, options = {}) {
     setStatus(`${channel.name} 暂无稳定回看`, true);
     return;
   }
-  const query = live ? "" : `?playseek=${options.range}`;
+  state.live = live;
+  state.lastRange = live ? "" : options.range || "";
+  const params = new URLSearchParams();
+  if (!live) {
+    params.set("playseek", state.lastRange);
+  }
+  params.set("quality", state.quality);
+  const query = `?${params}`;
   attachPlayer(`/${channel.slug}.m3u8${query}`, channel, live);
 }
 
@@ -455,6 +479,14 @@ elements.liveButton.addEventListener("click", () => {
   }
 });
 elements.replayButton.addEventListener("click", playCatchup);
+elements.quality.value = state.quality;
+elements.quality.addEventListener("change", () => {
+  state.quality = elements.quality.value;
+  localStorage.setItem("ntv-ysp.quality", state.quality);
+  if (state.current) {
+    playChannel(state.current, { live: state.live, range: state.lastRange });
+  }
+});
 elements.epgButton.addEventListener("click", openEpg);
 elements.epgClose.addEventListener("click", closeEpg);
 elements.epgBackdrop.addEventListener("click", closeEpg);

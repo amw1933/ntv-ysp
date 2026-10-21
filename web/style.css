@@ -269,7 +269,8 @@ button {
 }
 
 #seekTime,
-#seekLength {
+#seekLength,
+#quality {
   height: 36px;
   padding: 0 8px;
   border: 1px solid #3a4657;
@@ -281,6 +282,10 @@ button {
 
 #seekLength {
   width: 72px;
+}
+
+#quality {
+  width: 104px;
 }
 
 #controls span {

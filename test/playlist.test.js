@@ -33,6 +33,7 @@ test("creates a rolling live playlist without VOD end marker", () => {
     "#EXTM3U",
     "#EXT-X-PLAYLIST-TYPE:VOD",
     "#EXT-X-TARGETDURATION:6",
+    "#EXT-X-MEDIA-SEQUENCE:100",
     "#EXT-X-PROGRAM-DATE-TIME:2026-10-21T10:59:49+08:00",
     "#EXTINF:4.0,",
     "a.ts",
@@ -54,6 +55,7 @@ test("creates a rolling live playlist without VOD end marker", () => {
   assert.match(live.text, /b\.ts/);
   assert.match(live.text, /c\.ts/);
   assert.doesNotMatch(live.text, /ENDLIST/);
+  assert.match(live.text, /#EXT-X-MEDIA-SEQUENCE:100/);
 });
 
 test("rewrites media lines and URI attributes", () => {
@@ -85,7 +87,26 @@ test("extracts segment durations and dates", () => {
     {
       duration: 5.5,
       programDate: "2026-10-21T10:00:00+08:00",
-      uri: "one.ts"
+      uri: "one.ts",
+      discontinuity: false
     }
   ]);
+});
+
+test("keeps segment discontinuity markers", () => {
+  const live = buildLivePlaylist(
+    [
+      "#EXTM3U",
+      "#EXT-X-TARGETDURATION:4",
+      "#EXT-X-MEDIA-SEQUENCE:7",
+      "#EXTINF:4,",
+      "a.ts",
+      "#EXT-X-DISCONTINUITY",
+      "#EXTINF:4,",
+      "b.ts"
+    ].join("\n"),
+    "https://example.test/live/index.m3u8"
+  );
+  assert.ok(live);
+  assert.match(live.text, /#EXT-X-DISCONTINUITY\n#EXTINF/);
 });

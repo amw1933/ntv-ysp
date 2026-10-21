@@ -34,6 +34,12 @@
           <input id="seekTime" type="datetime-local" step="60" aria-label="回看时间">
           <input id="seekLength" type="number" min="1" max="240" value="30" aria-label="回看分钟数">
           <span>分钟</span>
+          <select id="quality" aria-label="播放码率">
+            <option value="1080">1080P</option>
+            <option value="4k">4K 优先</option>
+            <option value="720">720P</option>
+            <option value="auto">自动</option>
+          </select>
           <button id="replayButton" type="button">回看</button>
           <button id="epgButton" type="button">节目单</button>
           <button id="soundButton" type="button">声音</button>

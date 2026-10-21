@@ -1,0 +1,42 @@
+apply plugin: 'com.android.application'
+
+def gatewayUrl = project.findProperty('gatewayUrl') ?: 'http://127.0.0.1:8768'
+
+android {
+    namespace 'io.github.amw1933.ntvysp'
+    compileSdk 34
+    buildToolsVersion '34.0.0'
+
+    defaultConfig {
+        applicationId 'io.github.amw1933.ntvysp'
+        minSdkVersion 23
+        targetSdkVersion 34
+        versionCode 1
+        versionName '0.1.0'
+        buildConfigField 'String', 'DEFAULT_GATEWAY_URL',
+                '"' + gatewayUrl.toString().replace('\\', '\\\\').replace('"', '\\"') + '"'
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}
+
+dependencies {
+    implementation 'tv.danmaku.ijk.media:ijkplayer-java:0.8.8'
+}
