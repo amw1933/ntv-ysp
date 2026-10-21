@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nTv Live</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0f16;
+      --panel: #111925;
+      --line: #223044;
+      --text: #edf3fb;
+      --muted: #8b9bb0;
+      --accent: #f0a225;
+      --focus: #79b8ff;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body {
+      width: 100%; height: 100%; margin: 0; overflow: hidden;
+      background: var(--bg); color: var(--text);
+      font: 15px/1.45 "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    #app {
+      display: grid; grid-template-columns: 280px minmax(0, 1fr);
+      grid-template-rows: 100vh; width: 100vw; height: 100vh; overflow: hidden;
+    }
+    #side {
+      display: flex; min-width: 0; min-height: 0; flex-direction: column;
+      overflow: hidden; border-right: 1px solid var(--line);
+      background: linear-gradient(180deg, #121c28 0%, #0e151f 100%);
+    }
+    #brand {
+      padding: 15px 16px 13px; border-bottom: 1px solid var(--line);
+    }
+    #brand b { display: block; font-size: 19px; letter-spacing: 0; }
+    #brand small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+    #search {
+      width: calc(100% - 28px); height: 38px; margin: 12px 14px 7px; padding: 0 10px;
+      border: 1px solid var(--line); border-radius: 6px; outline: none;
+      background: #0b121c; color: var(--text);
+    }
+    #search:focus { border-color: var(--focus); }
+    #list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 8px 12px; }
+    .group { padding: 10px 8px 5px; color: var(--muted); font-size: 12px; }
+    .channel {
+      display: flex; align-items: center; width: 100%; min-height: 36px; gap: 8px;
+      padding: 7px 9px; border: 0; border-radius: 6px;
+      background: transparent; color: var(--text); text-align: left;
+    }
+    .channel:hover, .channel:focus-visible { outline: none; background: #192536; }
+    .channel.active { background: #1a5ca8; }
+    .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #56667b; }
+    .channel.active .dot { background: #bde0ff; }
+    .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge {
+      margin-left: auto; padding: 1px 5px; border: 1px solid #435067;
+      border-radius: 4px; color: #a9b8ca; font-size: 10px;
+    }
+    #meta { padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    #main { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: #000; }
+    #stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; background: #000; }
+    video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      display: block; object-fit: contain; background: #000;
+    }
+    #status {
+      position: absolute; top: 14px; left: 14px; max-width: min(72%, 760px);
+      padding: 7px 11px; border: 1px solid rgba(255,255,255,.13);
+      border-radius: 6px; background: rgba(5,9,14,.8); font-size: 13px;
+      pointer-events: none;
+    }
+    #status.error { border-color: rgba(255,110,110,.55); color: #ffd4d4; }
+    #controls {
+      position: absolute; right: 0; bottom: 0; left: 0; display: flex;
+      flex-wrap: wrap; align-items: center; gap: 9px; padding: 28px 16px 14px;
+      background: linear-gradient(transparent, rgba(0,0,0,.86));
+    }
+    #controls button, #controls input {
+      min-height: 36px; border: 1px solid #3a4657; border-radius: 6px;
+      background: rgba(18,28,41,.95); color: var(--text);
+    }
+    #controls button { padding: 6px 14px; }
+    #controls button:hover, #controls button:focus-visible { outline: none; border-color: var(--focus); }
+    #controls button.primary { border-color: var(--accent); background: var(--accent); color: #171006; font-weight: 700; }
+    #seekTime, #seekLength { padding: 0 8px; outline: none; }
+    #seekLength { width: 72px; }
+    #footer {
+      display: flex; min-height: 38px; align-items: center; justify-content: space-between;
+      gap: 20px; padding: 7px 14px; border-top: 1px solid #1b2635;
+      color: var(--muted); font-size: 12px; background: #0d141e;
+    }
+    #nowPlaying { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 760px) {
+      #app { grid-template-columns: 180px minmax(0, 1fr); }
+      #brand { padding: 12px; }
+      #brand b { font-size: 16px; }
+      #search { width: calc(100% - 16px); margin: 9px 8px 5px; }
+      #controls { gap: 6px; padding: 22px 9px 9px; }
+      #controls button { padding: 5px 9px; }
+      #seekTime { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside id="side">
+      <div id="brand">
+        <b>nTv Live</b>
+        <small>央视频直播与回看</small>
+      </div>
+      <input id="search" type="search" placeholder="搜索频道" autocomplete="off">
+      <div id="list" role="listbox" aria-label="频道"></div>
+      <div id="meta">正在读取频道...</div>
+    </aside>
+    <main id="main">
+      <section id="stage">
+        <video id="video" controls autoplay playsinline></video>
+        <div id="status">正在载入</div>
+        <div id="controls">
+          <button id="liveButton" class="primary" type="button">直播</button>
+          <input id="seekTime" type="datetime-local" step="60" aria-label="回看时间">
+          <input id="seekLength" type="number" min="1" max="240" value="30" aria-label="回看分钟数">
+          <span>分钟</span>
+          <button id="replayButton" type="button">回看</button>
+          <button id="soundButton" type="button">声音</button>
+        </div>
+      </section>
+      <footer id="footer">
+        <span id="nowPlaying">请选择频道</span>
+        <span id="clock"></span>
+      </footer>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <script>
+    (function () {
+      var API = "http://10.10.10.2:8767";
+      var channels = [];
+      var current = null;
+      var hls = null;
+      var state = { live: true, range: "" };
+      var $ = function (id) { return document.getElementById(id); };
+      var listEl = $("list"), video = $("video"), statusEl = $("status");
+      var searchEl = $("search"), metaEl = $("meta"), nowEl = $("nowPlaying");
+      var liveBtn = $("liveButton"), replayBtn = $("replayButton");
+      var seekTime = $("seekTime"), seekLength = $("seekLength");
+      var soundBtn = $("soundButton"), clockEl = $("clock");
+
+      function pad(n) { return (n < 10 ? "0" : "") + n; }
+      function localTime(d) {
+        return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
+          + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+      }
+      function compact(d) {
+        return "" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate())
+          + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+      }
+      function setStatus(text, error) {
+        statusEl.textContent = text;
+        statusEl.classList.toggle("error", !!error);
+      }
+      function attr(line, name) {
+        var m = line.match(new RegExp(name + '="([^"]*)"', "i"));
+        return m ? m[1] : "";
+      }
+      function parseM3U(text) {
+        var lines = text.replace(/\r/g, "").split("\n");
+        var out = [];
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (line.indexOf("#EXTINF") !== 0) continue;
+          var url = (lines[i + 1] || "").trim();
+          if (!/^https?:/i.test(url)) continue;
+          var comma = line.lastIndexOf(",");
+          var display = comma >= 0 ? line.slice(comma + 1).trim() : attr(line, "tvg-name");
+          out.push({
+            name: attr(line, "tvg-name") || display,
+            display: display || attr(line, "tvg-name") || "未命名频道",
+            group: attr(line, "group-title") || "其他",
+            logo: attr(line, "tvg-logo"),
+            catchup: attr(line, "catchup-source"),
+            url: url
+          });
+        }
+        return out;
+      }
+      function render(filter) {
+        listEl.textContent = "";
+        var needle = (filter || "").toLowerCase();
+        var groups = {};
+        channels.forEach(function (ch) {
+          if (needle && ch.display.toLowerCase().indexOf(needle) < 0) return;
+          (groups[ch.group] = groups[ch.group] || []).push(ch);
+        });
+        Object.keys(groups).forEach(function (group) {
+          var head = document.createElement("div");
+          head.className = "group";
+          head.textContent = group;
+          listEl.appendChild(head);
+          groups[group].forEach(function (ch) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "channel" + (current && current.url === ch.url ? " active" : "");
+            button.title = ch.display;
+            var dot = document.createElement("span");
+            dot.className = "dot";
+            var name = document.createElement("span");
+            name.className = "name";
+            name.textContent = ch.display;
+            button.appendChild(dot);
+            button.appendChild(name);
+            if (ch.catchup) {
+              var badge = document.createElement("span");
+              badge.className = "badge";
+              badge.textContent = "回看";
+              button.appendChild(badge);
+            }
+            button.addEventListener("click", function () { play(ch, true); });
+            listEl.appendChild(button);
+          });
+        });
+      }
+      function destroy() {
+        if (hls) { hls.destroy(); hls = null; }
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      }
+      function play(ch, live, range) {
+        destroy();
+        current = ch;
+        state.live = live;
+        state.range = range || "";
+        localStorage.setItem("ntv.last", ch.url);
+        var url = ch.url;
+        if (!live) {
+          var source = ch.catchup || "?playseek=${(b)yyyyMMddHHmmss}-${(e)yyyyMMddHHmmss}";
+          var parts = range.split("-");
+          if (url.indexOf("?") >= 0 && source.charAt(0) === "?") source = "&" + source.slice(1);
+          url += source.replace("${(b)yyyyMMddHHmmss}", parts[0])
+            .replace("${(e)yyyyMMddHHmmss}", parts[1]);
+        }
+        render(searchEl.value);
+        nowEl.textContent = ch.display + " · " + (live ? "直播" : "回看");
+        liveBtn.classList.toggle("primary", live);
+        setStatus("正在连接 " + ch.display);
+        if (window.Hls && Hls.isSupported()) {
+          hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false,
+            backBufferLength: 30,
+            maxBufferLength: 40
+          });
+          hls.loadSource(url);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, function () {
+            setStatus(ch.display + " · " + (live ? "直播" : "回看") + " · 已载入");
+          });
+          hls.on(Hls.Events.ERROR, function (_, data) {
+            if (!data.fatal) return;
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              setStatus("解码异常，正在恢复", true);
+              hls.recoverMediaError();
+            } else {
+              setStatus("播放失败，请切换频道", true);
+            }
+          });
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = url;
+        } else {
+          setStatus("浏览器不支持 HLS", true);
+          return;
+        }
+        video.muted = false;
+        video.volume = 1;
+        video.play().catch(function () {
+          video.muted = true;
+          soundBtn.textContent = "开声音";
+          video.play().catch(function () {});
+          setStatus(ch.display + " · 点画面开启声音");
+        });
+      }
+      function playCatchup() {
+        if (!current) return;
+        if (!current.catchup) {
+          setStatus(current.display + " 不支持回看", true);
+          return;
+        }
+        var end = new Date(seekTime.value);
+        if (isNaN(end.getTime())) {
+          setStatus("请选择有效的回看时间", true);
+          return;
+        }
+        var minutes = Math.max(1, Math.min(240, Number(seekLength.value) || 30));
+        var start = new Date(end.getTime() - minutes * 60000);
+        play(current, false, compact(start) + "-" + compact(end));
+      }
+      function setSound() {
+        video.muted = !video.muted;
+        video.volume = 1;
+        soundBtn.textContent = video.muted ? "开声音" : "声音";
+        if (!video.muted) video.play().catch(function () {});
+      }
+      function updateClock() {
+        clockEl.textContent = new Intl.DateTimeFormat("zh-CN", {
+          year: "numeric", month: "2-digit", day: "2-digit",
+          weekday: "short", hour: "2-digit", minute: "2-digit",
+          second: "2-digit"
+        }).format(new Date());
+      }
+      fetch(API + "/all.m3u", { cache: "no-store" }).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.text();
+      }).then(function (text) {
+        channels = parseM3U(text);
+        metaEl.textContent = channels.length + " 路频道 · 9.5";
+        render("");
+        var saved = localStorage.getItem("ntv.last");
+        var pick = channels.find(function (ch) { return ch.url === saved; }) || channels[0];
+        if (pick) play(pick, true);
+      }).catch(function (err) {
+        metaEl.textContent = "频道读取失败";
+        setStatus("无法连接网关：" + err.message, true);
+      });
+      searchEl.addEventListener("input", function () { render(searchEl.value); });
+      liveBtn.addEventListener("click", function () { if (current) play(current, true); });
+      replayBtn.addEventListener("click", playCatchup);
+      soundBtn.addEventListener("click", setSound);
+      video.addEventListener("click", function () {
+        if (video.muted) setSound();
+      });
+      video.addEventListener("volumechange", function () {
+        soundBtn.textContent = video.muted ? "开声音" : "声音";
+      });
+      seekTime.value = localTime(new Date(Date.now() - 30 * 60000));
+      updateClock();
+      setInterval(updateClock, 1000);
+    })();
+  </script>
+</body>
+</html>
