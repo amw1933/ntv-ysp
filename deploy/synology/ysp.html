@@ -143,6 +143,8 @@
       var current = null;
       var hls = null;
       var state = { live: true, range: "" };
+      var soundOn = localStorage.getItem("ntv.sound") !== "off";
+      var autoplayBlocked = false;
       var $ = function (id) { return document.getElementById(id); };
       var listEl = $("list"), video = $("video"), statusEl = $("status");
       var searchEl = $("search"), metaEl = $("meta"), nowEl = $("nowPlaying");
@@ -233,6 +235,7 @@
       function play(ch, live, range) {
         destroy();
         current = ch;
+        autoplayBlocked = false;
         state.live = live;
         state.range = range || "";
         localStorage.setItem("ntv.last", ch.url);
@@ -258,7 +261,10 @@
           hls.loadSource(url);
           hls.attachMedia(video);
           hls.on(Hls.Events.MANIFEST_PARSED, function () {
-            setStatus(ch.display + " · " + (live ? "直播" : "回看") + " · 已载入");
+            if (!autoplayBlocked) {
+              setStatus(ch.display + " · " + (live ? "直播" : "回看") + " · 已载入");
+            }
+            attemptPlay(ch, live);
           });
           hls.on(Hls.Events.ERROR, function (_, data) {
             if (!data.fatal) return;
@@ -275,14 +281,7 @@
           setStatus("浏览器不支持 HLS", true);
           return;
         }
-        video.muted = false;
-        video.volume = 1;
-        video.play().catch(function () {
-          video.muted = true;
-          soundBtn.textContent = "开声音";
-          video.play().catch(function () {});
-          setStatus(ch.display + " · 点画面开启声音");
-        });
+        attemptPlay(ch, live);
       }
       function playCatchup() {
         if (!current) return;
@@ -299,11 +298,35 @@
         var start = new Date(end.getTime() - minutes * 60000);
         play(current, false, compact(start) + "-" + compact(end));
       }
-      function setSound() {
-        video.muted = !video.muted;
+      function applySound() {
+        video.muted = !soundOn;
         video.volume = 1;
-        soundBtn.textContent = video.muted ? "开声音" : "声音";
-        if (!video.muted) video.play().catch(function () {});
+        soundBtn.textContent = soundOn ? "声音" : "开声音";
+      }
+      function attemptPlay(ch, live) {
+        applySound();
+        video.play().catch(function () {
+          autoplayBlocked = true;
+          setStatus((ch ? ch.display : "") + " · 浏览器已阻止有声自动播放，点一下页面开启声音");
+          document.addEventListener("pointerdown", unlockSound, { once: true });
+          document.addEventListener("keydown", unlockSound, { once: true });
+        });
+      }
+      function setSound(forceOn) {
+        soundOn = typeof forceOn === "boolean" ? forceOn : !soundOn;
+        localStorage.setItem("ntv.sound", soundOn ? "on" : "off");
+        applySound();
+        if (soundOn) video.play().catch(function () {});
+      }
+      function unlockSound() {
+        document.removeEventListener("pointerdown", unlockSound);
+        document.removeEventListener("keydown", unlockSound);
+        autoplayBlocked = false;
+        setSound(true);
+        attemptPlay(current, state.live);
+        if (current) {
+          setStatus(current.display + " · " + (state.live ? "直播" : "回看"));
+        }
       }
       function updateClock() {
         clockEl.textContent = new Intl.DateTimeFormat("zh-CN", {
@@ -329,13 +352,20 @@
       searchEl.addEventListener("input", function () { render(searchEl.value); });
       liveBtn.addEventListener("click", function () { if (current) play(current, true); });
       replayBtn.addEventListener("click", playCatchup);
-      soundBtn.addEventListener("click", setSound);
+      soundBtn.addEventListener("click", function () { setSound(); });
       video.addEventListener("click", function () {
-        if (video.muted) setSound();
+        if (video.muted) setSound(true);
       });
       video.addEventListener("volumechange", function () {
         soundBtn.textContent = video.muted ? "开声音" : "声音";
       });
+      video.addEventListener("playing", function () {
+        autoplayBlocked = false;
+        if (current) {
+          setStatus(current.display + " · " + (state.live ? "直播" : "回看"));
+        }
+      });
+      applySound();
       seekTime.value = localTime(new Date(Date.now() - 30 * 60000));
       updateClock();
       setInterval(updateClock, 1000);
