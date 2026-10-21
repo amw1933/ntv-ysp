@@ -400,30 +400,56 @@ const server = http.createServer(async (request, response) => {
     });
     return;
   }
-  if (pathname === "/tvbox.json") {
+  if (pathname === "/api/tvbox-empty.json") {
+    sendJson(response, 200, { class: [], list: [] });
+    return;
+  }
+  if (pathname === "/tvbox.json" || pathname === "/tvbox-v95.json"
+      || pathname === "/tvbox-all.json") {
     const origin = requestOrigin(request);
     const own = new URL(origin);
     const upstream = new URL(origin);
     own.pathname = "/all.m3u";
     upstream.port = "8767";
     upstream.pathname = "/all.m3u";
-    sendJson(response, 200, {
-      sites: [],
-      lives: [
-        {
-          name: "nTv 自建 1080P",
-          url: own.toString(),
-          epg: "https://github.com/TvWasm/autoEPG/releases/latest/download/epg.xml",
-          timeZone: "Asia/Shanghai"
-        },
-        {
-          name: "原版 v9.5",
-          url: process.env.V95_M3U_URL || upstream.toString(),
-          epg: "https://github.com/TvWasm/autoEPG/releases/latest/download/epg.xml",
-          timeZone: "Asia/Shanghai"
-        }
-      ]
-    });
+    const epg = "https://github.com/TvWasm/autoEPG/releases/latest/download/epg.xml";
+    const emptySite = {
+      key: "ntv-empty",
+      name: "空点播源",
+      type: 1,
+      api: `${origin}/api/tvbox-empty.json`,
+      searchable: 0,
+      quickSearch: 0,
+      hide: 1
+    };
+    const selfLive = {
+      name: "nTv 自建 1080P",
+      type: 0,
+      url: own.toString(),
+      epg,
+      timeZone: "Asia/Shanghai",
+      playerType: 1
+    };
+    const v95Live = {
+      name: "原版 v9.5",
+      type: 0,
+      url: process.env.V95_M3U_URL || upstream.toString(),
+      epg,
+      timeZone: "Asia/Shanghai",
+      playerType: 1
+    };
+    if (pathname === "/tvbox-all.json") {
+      sendJson(response, 200, {
+        sites: [emptySite],
+        lives: [selfLive, v95Live]
+      });
+    } else {
+      sendJson(response, 200, {
+        sites: [emptySite],
+        parses: [],
+        lives: [pathname === "/tvbox-v95.json" ? v95Live : selfLive]
+      });
+    }
     return;
   }
   const epgMatch = pathname.match(/^\/api\/epg\/([a-z0-9_-]+)$/i);

@@ -78,13 +78,22 @@ Televizo 添加方式：
 
 ## 开源 TVBox
 
-可在 TVBox 里同时加载“自建 1080P”和“原版 v9.5”两条源做 A/B 对比：
+Takagen Box 这类旧版 TVBox 使用单直播源配置：
 
 ```text
 http://你的局域网IP:8768/tvbox.json
+http://你的局域网IP:8768/tvbox-v95.json
 ```
 
-该配置会生成：
+`tvbox.json` 使用自建源，`tvbox-v95.json` 使用原版 v9.5。修改 TVBox 的配置地址即可切换。
+
+新版 FongMi/TV 可以使用双源配置：
+
+```text
+http://你的局域网IP:8768/tvbox-all.json
+```
+
+该配置会包含：
 
 - `nTv 自建 1080P`：`http://你的局域网IP:8768/all.m3u`
 - `原版 v9.5`：`http://你的局域网IP:8767/all.m3u`
