@@ -22,7 +22,9 @@ const PORT = Number(process.env.PORT || 8768);
 const HOST = process.env.HOST || "0.0.0.0";
 const MEDIA_TTL_MS = 30 * 60 * 1000;
 const PLAYLIST_CACHE_MS = 3500;
-const mediaTokens = new Map();
+const TOKEN_SECRET = process.env.MEDIA_SECRET
+  ? Buffer.from(process.env.MEDIA_SECRET)
+  : crypto.randomBytes(32);
 const playlistCache = new Map();
 const startedAt = Date.now();
 
@@ -66,31 +68,50 @@ function sendJson(response, status, value) {
 }
 
 function addMediaToken(url, headers) {
-  const token = crypto.randomBytes(18).toString("base64url");
-  mediaTokens.set(token, {
+  const payload = Buffer.from(JSON.stringify({
     url,
     headers,
     expiresAt: Date.now() + MEDIA_TTL_MS
-  });
-  return token;
+  })).toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", TOKEN_SECRET)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${signature}`;
 }
 
-function takeMediaToken(token) {
-  const item = mediaTokens.get(token);
-  if (!item || item.expiresAt <= Date.now()) {
-    mediaTokens.delete(token);
+function verifyMediaToken(token) {
+  const separator = token.lastIndexOf(".");
+  if (separator <= 0) {
     return null;
   }
-  return item;
+  const payload = token.slice(0, separator);
+  const signature = token.slice(separator + 1);
+  const expected = crypto
+    .createHmac("sha256", TOKEN_SECRET)
+    .update(payload)
+    .digest("base64url");
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (
+    actualBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(actualBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+  try {
+    const item = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!item.url || item.expiresAt <= Date.now()) {
+      return null;
+    }
+    return item;
+  } catch {
+    return null;
+  }
 }
 
-function cleanupTokens() {
+function cleanupCaches() {
   const now = Date.now();
-  for (const [token, item] of mediaTokens) {
-    if (item.expiresAt <= now) {
-      mediaTokens.delete(token);
-    }
-  }
   for (const [key, item] of playlistCache) {
     if (item.expiresAt <= now) {
       playlistCache.delete(key);
@@ -207,7 +228,7 @@ async function serveChannel(request, response, channel, searchParams) {
 }
 
 async function serveMedia(request, response, token) {
-  const item = takeMediaToken(token);
+  const item = verifyMediaToken(token);
   if (!item) {
     sendJson(response, 404, {
       error: "expired_media_token",
@@ -311,7 +332,7 @@ const server = http.createServer(async (request, response) => {
       uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
       channels: CHANNELS.length,
       catchupChannels: CHANNELS.filter((channel) => channel.catchup).length,
-      activeMediaTokens: mediaTokens.size,
+      mediaTokenMode: "stateless-hmac",
       epg: epgCacheState()
     });
     return;
@@ -383,7 +404,7 @@ const server = http.createServer(async (request, response) => {
   await serveStatic(request, response, pathname);
 });
 
-setInterval(cleanupTokens, 60 * 1000).unref();
+setInterval(cleanupCaches, 60 * 1000).unref();
 server.listen(PORT, HOST, () => {
   console.log(`nTv YSP listening on http://localhost:${PORT}`);
   console.log(`M3U: http://localhost:${PORT}/all.m3u`);
